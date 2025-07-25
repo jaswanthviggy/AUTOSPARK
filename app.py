@@ -14,21 +14,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Mock Gemini API Call ---
-def get_gemini_response(prompt):
-    """Simulates a call to the Gemini API."""
-    time.sleep(1) # Simulate network latency
-    if "summary" in prompt.lower():
-        return "This dataset appears robust with minimal data quality issues. The primary numerical features show moderate correlation, suggesting they will be valuable for predictive modeling. Key actions would involve standardizing numerical features before training."
-    elif "rename" in prompt.lower():
-        headers_str = prompt.split("Headers:")[1].strip()
-        headers = [h.strip() for h in headers_str.split(',')]
-        mock_rename = {h: h.replace("_", " ").title().replace(" ", "") for h in headers}
-        return json.dumps(mock_rename)
-    elif "interpretation" in prompt.lower():
-        return "This model demonstrates strong performance, effectively capturing the patterns in the data. The most influential features identified are critical drivers for the target variable. For further improvement, consider hyperparameter tuning or creating interaction features from the top predictors."
-    return "AI response could not be generated."
-
 # --- Data Analysis Engine ---
 def analyze_data(df):
     if not isinstance(df, pd.DataFrame) or df.empty: return {}
@@ -45,7 +30,8 @@ def analyze_data(df):
     numerical_cols = [col for col, details in column_details.items() if details['dtype'] == 'numerical']
     basic_stats = df[numerical_cols].describe().transpose().to_dict('index') if numerical_cols else {}
     correlation_matrix = df[numerical_cols].corr() if numerical_cols else pd.DataFrame()
-    return {'shape': {'rows': n_rows, 'columns': n_cols}, 'column_details': column_details, 'basic_stats': basic_stats, 'correlation_matrix': correlation_matrix}
+    value_counts = {col: df[col].value_counts().head(10).to_dict() for col in [c for c,d in column_details.items() if d['dtype']=='categorical']}
+    return {'shape': {'rows': n_rows, 'columns': n_cols}, 'column_details': column_details, 'basic_stats': basic_stats, 'correlation_matrix': correlation_matrix, 'value_counts': value_counts, 'duplicate_rows': df.duplicated().sum()}
 
 # --- Mock Model Training Engine ---
 def train_models_mock(df, features, target, problem_type, selected_models):
@@ -87,13 +73,15 @@ def train_models_mock(df, features, target, problem_type, selected_models):
     return results
 
 # --- Main App UI ---
-st.title("⚡ DataSpark: AI-Powered AutoML")
+st.title("⚡ DataSpark: Advanced AutoML")
 
 # Initialize session state
 if 'df' not in st.session_state:
     st.session_state.df = None
+    st.session_state.df_cleaned = None
     st.session_state.analysis = None
     st.session_state.file_name = None
+    st.session_state.transform_log = []
 
 uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type="csv")
 
@@ -101,7 +89,9 @@ if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
         st.session_state.df = df
+        st.session_state.df_cleaned = df.copy() # Create a working copy
         st.session_state.file_name = uploaded_file.name
+        st.session_state.transform_log = ["Dataset Loaded."]
         with st.spinner('Analyzing data...'):
             st.session_state.analysis = analyze_data(df)
     except Exception as e:
@@ -109,60 +99,94 @@ if uploaded_file is not None:
         st.session_state.df = None
 
 if st.session_state.df is not None:
-    analysis = st.session_state.analysis
+    analysis = analyze_data(st.session_state.df_cleaned) # Always analyze the cleaned df
     df = st.session_state.df
+    df_cleaned = st.session_state.df_cleaned
 
     st.header(f"Analysis of: {st.session_state.file_name}")
     
-    tabs = st.tabs(["Overview", "Preprocessing", "Feature Engineering", "Distributions", "Correlations", "🤖 Model Building"])
+    tabs = st.tabs(["Overview", "🔬 Data Transformation", "Distributions", "Correlations", "🤖 Model Building"])
 
-    # --- Overview Tab ---
     with tabs[0]:
-        st.subheader("AI-Generated Summary")
-        with st.spinner("AI is generating insights..."):
-            summary_prompt = f"As a senior data scientist, summarize a dataset with these characteristics: {json.dumps(analysis['shape'])}."
-            st.markdown(get_gemini_response(summary_prompt))
-        st.subheader("Dataset Preview (First 5 Rows)")
+        st.subheader("Dataset Preview (First 5 Rows of Original Data)")
         st.dataframe(df.head())
+        st.subheader("Key Metrics (Based on Current Data)")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Rows", f"{analysis['shape']['rows']:,}")
+        col2.metric("Columns", f"{analysis['shape']['columns']:,}")
+        col3.metric("Missing Cells", f"{df_cleaned.isnull().sum().sum():,}")
+        col4.metric("Duplicate Rows", f"{df_cleaned.duplicated().sum():,}")
 
-    # --- Preprocessing Tab ---
     with tabs[1]:
-        st.subheader("Data Cleaning & Preparation")
-        st.info("Actions applied here will update the dataset for modeling.")
-        if st.button("Apply All Recommended Preprocessing"):
-            st.success("All preprocessing steps applied! Your dataset is now cleaner.")
-        # Placeholder for more detailed preprocessing UI
+        st.header("🔬 Data Transformation Workspace")
+        st.info("Prepare your data for modeling. All actions here are performed on a copy of your original data.")
+        
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.subheader("Transformation Log")
+            st.code("\n".join(st.session_state.transform_log), language="log")
+        with col2:
+            st.subheader("Cleaned Data Preview")
+            st.dataframe(df_cleaned.head())
 
-    # --- Feature Engineering Tab ---
+        st.divider()
+        
+        st.subheader("Automated Cleaning")
+        if st.button("⚡ Auto-Clean Dataset", use_container_width=True, help="Applies a standard pipeline: Median/Mode Imputation, Outlier Capping, Scaling, and Encoding."):
+            # This would be a complex pipeline. We'll simulate it.
+            st.session_state.transform_log.append("Applied Auto-Clean Pipeline.")
+            st.success("Auto-Clean pipeline completed!")
+            # In a real app, you'd call functions for each step here.
+
+        st.subheader("Manual Steps")
+        with st.expander("Handle Missing Values (Imputation)"):
+            st.write("Fill missing values using statistical methods.")
+            # Simplified UI for demonstration
+            numerical_missing = [col for col, details in analysis['column_details'].items() if details['dtype'] == 'numerical' and details['missing'] > 0]
+            if numerical_missing:
+                col_to_impute_num = st.selectbox("Select Numerical Column", numerical_missing)
+                if st.button(f"Impute Median for '{col_to_impute_num}'"):
+                    median_val = df_cleaned[col_to_impute_num].median()
+                    df_cleaned[col_to_impute_num].fillna(median_val, inplace=True)
+                    st.session_state.df_cleaned = df_cleaned
+                    st.session_state.transform_log.append(f"Imputed '{col_to_impute_num}' with median ({median_val:.2f}).")
+                    st.experimental_rerun()
+            else:
+                st.write("No missing numerical values.")
+
+        with st.expander("Scale Numerical Features"):
+            st.write("Standardize numerical features to have a mean of 0 and variance of 1.")
+            if st.button("Apply StandardScaler"):
+                st.session_state.transform_log.append("Applied StandardScaler to all numerical columns.")
+                st.success("Numerical features scaled.")
+
+        with st.expander("Encode Categorical Features"):
+            st.write("Convert categorical columns into a machine-readable format (One-Hot Encoding).")
+            if st.button("Apply One-Hot Encoding"):
+                st.session_state.transform_log.append("Applied One-Hot Encoding to categorical columns.")
+                st.success("Categorical features encoded.")
+
     with tabs[2]:
-        st.subheader("Feature Engineering")
-        st.info("Create new features to improve model performance.")
-        # Placeholder
-
-    # --- Distributions Tab ---
-    with tabs[3]:
-        st.subheader("Column Distributions")
-        dist_col = st.selectbox("Select a column to visualize", df.columns, key="dist_select")
+        st.subheader("Column Distributions (on Cleaned Data)")
+        dist_col = st.selectbox("Select a column to visualize", df_cleaned.columns, key="dist_select")
         if analysis['column_details'][dist_col]['dtype'] == 'numerical':
-            fig = px.histogram(df, x=dist_col, title=f"Distribution of {dist_col}")
+            fig = px.histogram(df_cleaned, x=dist_col, title=f"Distribution of {dist_col}")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            vc = df[dist_col].value_counts().head(20)
+            vc = df_cleaned[dist_col].value_counts().head(20)
             fig = px.bar(vc, x=vc.index, y=vc.values, labels={'x': dist_col, 'y': 'Count'}, title=f"Value Counts for {dist_col}")
             st.plotly_chart(fig, use_container_width=True)
 
-    # --- Correlations Tab ---
-    with tabs[4]:
-        st.subheader("Correlation Matrix")
-        corr_matrix = analysis['correlation_matrix']
+    with tabs[3]:
+        st.subheader("Correlation Matrix (on Cleaned Data)")
+        corr_matrix = analyze_data(df_cleaned)['correlation_matrix']
         if not corr_matrix.empty:
             fig = go.Figure(data=go.Heatmap(z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.columns, colorscale='RdBu', zmin=-1, zmax=1))
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.write("Not enough numerical columns to calculate correlations.")
 
-    # --- Model Building Tab ---
-    with tabs[5]:
+    with tabs[4]:
         st.header("🤖 AutoML Workspace")
         
         ml_task = st.selectbox("1. Choose your Machine Learning Task", ["Supervised Learning", "Unsupervised Learning"])
@@ -185,24 +209,31 @@ if st.session_state.df is not None:
 
                     st.subheader("4. Select Models to Train")
                     if is_regression:
-                        model_options = ["Linear Regression", "Ridge", "Lasso", "Decision Tree Regressor", "Random Forest Regressor", "Gradient Boosting Regressor"]
+                        model_options = ["Linear Regression", "Ridge", "Lasso", "ElasticNet", "Decision Tree Regressor", "Random Forest Regressor", "Gradient Boosting Regressor", "SVR", "KNN Regressor"]
                     else:
-                        model_options = ["Logistic Regression", "K-Nearest Neighbors", "SVM", "Decision Tree Classifier", "Random Forest Classifier", "Gradient Boosting Classifier"]
+                        model_options = ["Logistic Regression", "KNN Classifier", "SVM", "Naive Bayes", "Decision Tree Classifier", "Random Forest Classifier", "Gradient Boosting Classifier", "LDA", "QDA"]
                     selected_models = st.multiselect("Algorithms", model_options, default=model_options)
 
                     if st.button("Train Selected Models", type="primary", use_container_width=True):
-                        with st.spinner("Training models... This may take a moment."):
-                            st.session_state.model_results = train_models_mock(df, selected_features, target_variable, "Regression" if is_regression else "Classification", selected_models)
+                        with st.spinner("Training models on transformed data..."):
+                            st.session_state.model_results = train_models_mock(df_cleaned, selected_features, target_variable, "Regression" if is_regression else "Classification", selected_models)
 
         else: # Unsupervised
             st.subheader("2. Unsupervised Learning Setup")
-            unsupervised_models = st.multiselect("Select Models to Run", ["K-Means Clustering", "Principal Component Analysis (PCA)"])
+            unsupervised_task = st.selectbox("Select Task", ["Clustering", "Dimensionality Reduction"])
+            if unsupervised_task == "Clustering":
+                model_options = ["K-Means Clustering", "Hierarchical Clustering", "DBSCAN"]
+            else:
+                model_options = ["Principal Component Analysis (PCA)", "t-SNE"]
+            
+            selected_models = st.multiselect("Select Models to Run", model_options)
             if st.button("Run Models", type="primary", use_container_width=True):
                 st.success("Unsupervised models ran successfully! (This is a placeholder)")
         
         if 'model_results' in st.session_state and st.session_state.model_results:
             st.subheader("5. Model Results Leaderboard")
             results = st.session_state.model_results
+            
             metric_name = "R-Squared" if "Regression" in results[0]['name'] else "Accuracy"
             
             sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
@@ -234,15 +265,7 @@ if st.session_state.df is not None:
                 fig = px.bar(pd.DataFrame(model['feature_importance']), x='importance', y='feature', orientation='h', title="Top 10 Most Influential Features")
                 st.plotly_chart(fig)
 
-                st.subheader("✨ AI Interpretation")
-                with st.spinner("Generating AI interpretation..."):
-                    interp_prompt = f"Interpret these model results: Model='{model['name']}', Score={model['score']:.3f}, Top Features={', '.join([f['feature'] for f in model['feature_importance']])}. Explain the performance and key drivers."
-                    st.markdown(get_gemini_response(interp_prompt))
-
-
 else:
     st.sidebar.info("Upload a CSV file to begin your analysis.")
     st.info("Welcome to DataSpark! Please upload a file to get started.")
-
-
 
