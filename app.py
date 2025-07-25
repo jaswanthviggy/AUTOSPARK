@@ -140,13 +140,15 @@ if st.session_state.df is not None:
                 # Imputation
                 num_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
                 cat_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical']
+                
                 if num_cols:
-                    imputer = SimpleImputer(strategy='median')
-                    temp_df[num_cols] = imputer.fit_transform(temp_df[num_cols])
+                    imputer_num = SimpleImputer(strategy='median')
+                    temp_df[num_cols] = pd.DataFrame(imputer_num.fit_transform(temp_df[num_cols]), columns=num_cols, index=temp_df.index)
                     log.append("Auto: Imputed missing numerical data with median.")
+                
                 if cat_cols:
-                    imputer = SimpleImputer(strategy='most_frequent')
-                    temp_df[cat_cols] = imputer.fit_transform(temp_df[cat_cols])
+                    imputer_cat = SimpleImputer(strategy='most_frequent')
+                    temp_df[cat_cols] = pd.DataFrame(imputer_cat.fit_transform(temp_df[cat_cols]), columns=cat_cols, index=temp_df.index)
                     log.append("Auto: Imputed missing categorical data with mode.")
                 
                 # Scaling
