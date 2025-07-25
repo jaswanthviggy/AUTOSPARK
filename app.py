@@ -5,10 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import time
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -28,10 +26,8 @@ def analyze_data(df):
         missing = df[col].isnull().sum()
         non_empty_count = n_rows - missing
         
-        if pd.api.types.is_numeric_dtype(dtype):
-            col_type = 'numerical'
-        elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
-            col_type = 'date'
+        if pd.api.types.is_numeric_dtype(dtype): col_type = 'numerical'
+        elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8): col_type = 'date'
         else:
             if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d|\$|€|mi|kg)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'complex_text'
@@ -52,19 +48,13 @@ def analyze_data(df):
     correlation_matrix = df[numerical_cols].corr() if numerical_cols else pd.DataFrame()
     value_counts = {col: df[col].value_counts().head(10).to_dict() for col in [c for c,d in column_details.items() if d['dtype']=='categorical']}
     
-    return {
-        'shape': {'rows': n_rows, 'columns': n_cols},
-        'column_details': column_details,
-        'basic_stats': basic_stats,
-        'correlation_matrix': correlation_matrix,
-        'value_counts': value_counts,
-        'duplicate_rows': df.duplicated().sum()
-    }
+    return {'shape': {'rows': n_rows, 'columns': n_cols}, 'column_details': column_details, 'basic_stats': basic_stats, 'correlation_matrix': correlation_matrix, 'value_counts': value_counts, 'duplicate_rows': df.duplicated().sum()}
 
 # --- Mock Model Training Engine ---
 def train_models_mock(df, features, target, problem_type, selected_models):
     time.sleep(2)
     results = []
+    # Simple simulation logic
     if problem_type == 'Regression':
         base_r2 = 0.65 + np.random.rand() * 0.1
         for i, model_name in enumerate(selected_models):
@@ -91,17 +81,18 @@ if 'df' not in st.session_state:
 uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type="csv")
 
 if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file)
-        st.session_state.df = df
-        st.session_state.df_transformed = df.copy()
-        st.session_state.file_name = uploaded_file.name
-        st.session_state.transform_log = ["Dataset Loaded."]
-        with st.spinner('Analyzing data...'):
-            st.session_state.analysis = analyze_data(df)
-    except Exception as e:
-        st.sidebar.error(f"Error: {e}")
-        st.session_state.df = None
+    if st.session_state.file_name != uploaded_file.name:
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.session_state.df = df
+            st.session_state.df_transformed = df.copy()
+            st.session_state.file_name = uploaded_file.name
+            st.session_state.transform_log = ["Dataset Loaded."]
+            with st.spinner('Analyzing data...'):
+                st.session_state.analysis = analyze_data(df)
+        except Exception as e:
+            st.sidebar.error(f"Error: {e}")
+            st.session_state.df = None
 
 if st.session_state.df is not None:
     analysis = analyze_data(st.session_state.df_transformed)
@@ -125,7 +116,7 @@ if st.session_state.df is not None:
     with tabs[1]:
         st.subheader("Column Inspector")
         col_to_inspect = st.selectbox("Select a column for detailed info", df_transformed.columns)
-        if col_to_inspect:
+        if col_to_inspect and col_to_inspect in analysis['column_details']:
             col_details = analysis['column_details'][col_to_inspect]
             st.write(f"**Data Type:** `{col_details['dtype']}`")
             st.write(f"**Missing Values:** {col_details['missing']} ({col_details['missingPercentage']:.2f}%)")
@@ -139,31 +130,30 @@ if st.session_state.df is not None:
 
     with tabs[2]:
         st.header("🔬 Data Transformation Workspace")
-        st.info("Prepare your data for modeling. All actions here are performed on a copy of your original data.")
-        
+        st.info("Prepare your data for modeling. Actions here modify a copy of your data.")
+
         if st.button("⚡ Auto-Clean Dataset", use_container_width=True, type="primary"):
             with st.spinner("Running Auto-Clean pipeline..."):
-                temp_df = df_transformed.copy()
+                temp_df = st.session_state.df_transformed.copy()
                 log = st.session_state.transform_log
                 
                 # Imputation
-                num_imputer = SimpleImputer(strategy='median')
-                cat_imputer = SimpleImputer(strategy='most_frequent')
-                numerical_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
-                categorical_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical']
-                
-                if numerical_cols:
-                    temp_df[numerical_cols] = num_imputer.fit_transform(temp_df[numerical_cols])
-                    log.append("Imputed missing numerical data with median.")
-                if categorical_cols:
-                    temp_df[categorical_cols] = cat_imputer.fit_transform(temp_df[categorical_cols])
-                    log.append("Imputed missing categorical data with mode.")
+                num_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
+                cat_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical']
+                if num_cols:
+                    imputer = SimpleImputer(strategy='median')
+                    temp_df[num_cols] = imputer.fit_transform(temp_df[num_cols])
+                    log.append("Auto: Imputed missing numerical data with median.")
+                if cat_cols:
+                    imputer = SimpleImputer(strategy='most_frequent')
+                    temp_df[cat_cols] = imputer.fit_transform(temp_df[cat_cols])
+                    log.append("Auto: Imputed missing categorical data with mode.")
                 
                 # Scaling
-                if numerical_cols:
+                if num_cols:
                     scaler = StandardScaler()
-                    temp_df[numerical_cols] = scaler.fit_transform(temp_df[numerical_cols])
-                    log.append("Scaled numerical features with StandardScaler.")
+                    temp_df[num_cols] = scaler.fit_transform(temp_df[num_cols])
+                    log.append("Auto: Scaled numerical features with StandardScaler.")
 
                 st.session_state.df_transformed = temp_df
                 st.session_state.transform_log = log
@@ -185,27 +175,30 @@ if st.session_state.df is not None:
             st.write("No complex text columns found for feature extraction.")
         else:
             for col in complex_cols:
-                st.write(f"**Column: `{col}`**")
-                st.write("This column may contain multiple pieces of information.")
-                if st.button(f"Extract Features from `{col}`"):
-                    df_transformed[f'{col}_HP'] = df_transformed[col].str.extract(r'(\d+\.?\d*)\s*HP', expand=False).astype(float)
-                    df_transformed[f'{col}_Liters'] = df_transformed[col].str.extract(r'(\d+\.?\d*)\s*L', expand=False).astype(float)
-                    df_transformed[f'{col}_Cylinders'] = df_transformed[col].str.extract(r'V(\d+)', expand=False).astype(float)
-                    df_transformed.drop(columns=[col], inplace=True)
-                    st.session_state.df_transformed = df_transformed
-                    st.session_state.transform_log.append(f"Extracted HP, Liters, Cylinders from '{col}'. Dropped original.")
-                    st.rerun()
-    
+                with st.container():
+                    st.write(f"**Column: `{col}`**")
+                    st.write("This column may contain multiple pieces of information.")
+                    if st.button(f"Extract Features from `{col}`"):
+                        df_copy = st.session_state.df_transformed.copy()
+                        df_copy[f'{col}_HP'] = df_copy[col].str.extract(r'(\d+\.?\d*)\s*HP', expand=False).astype(float)
+                        df_copy[f'{col}_Liters'] = df_copy[col].str.extract(r'(\d+\.?\d*)\s*L', expand=False).astype(float)
+                        df_copy[f'{col}_Cylinders'] = df_copy[col].str.extract(r'V(\d+)', expand=False).astype(float)
+                        df_copy.drop(columns=[col], inplace=True)
+                        st.session_state.df_transformed = df_copy
+                        st.session_state.transform_log.append(f"Extracted HP, Liters, Cylinders from '{col}'. Dropped original.")
+                        st.rerun()
+
     with tabs[3]:
         st.subheader("Column Distributions (on Transformed Data)")
-        dist_col = st.selectbox("Select a column to visualize", df_transformed.columns, key="dist_select")
-        if analysis['column_details'].get(dist_col, {}).get('dtype') == 'numerical':
-            fig = px.histogram(df_transformed, x=dist_col, title=f"Distribution of {dist_col}")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            vc = df_transformed[dist_col].value_counts().head(20)
-            fig = px.bar(vc, x=vc.index, y=vc.values, labels={'x': dist_col, 'y': 'Count'}, title=f"Value Counts for {dist_col}")
-            st.plotly_chart(fig, use_container_width=True)
+        if not df_transformed.empty:
+            dist_col = st.selectbox("Select a column to visualize", df_transformed.columns, key="dist_select")
+            if dist_col and analysis['column_details'].get(dist_col, {}).get('dtype') == 'numerical':
+                fig = px.histogram(df_transformed, x=dist_col, title=f"Distribution of {dist_col}")
+                st.plotly_chart(fig, use_container_width=True)
+            elif dist_col:
+                vc = df_transformed[dist_col].value_counts().head(20)
+                fig = px.bar(vc, x=vc.index, y=vc.values, labels={'x': dist_col, 'y': 'Count'}, title=f"Value Counts for {dist_col}")
+                st.plotly_chart(fig, use_container_width=True)
 
     with tabs[4]:
         st.subheader("Correlation Matrix (on Transformed Data)")
@@ -251,10 +244,8 @@ if st.session_state.df is not None:
         else: # Unsupervised
             st.subheader("2. Unsupervised Learning Setup")
             unsupervised_task = st.selectbox("Select Task", ["Clustering", "Dimensionality Reduction"])
-            if unsupervised_task == "Clustering":
-                model_options = ["K-Means Clustering", "Hierarchical Clustering", "DBSCAN"]
-            else:
-                model_options = ["Principal Component Analysis (PCA)", "t-SNE"]
+            if unsupervised_task == "Clustering": model_options = ["K-Means Clustering", "Hierarchical Clustering", "DBSCAN"]
+            else: model_options = ["Principal Component Analysis (PCA)", "t-SNE"]
             
             selected_models = st.multiselect("Select Models to Run", model_options)
             if st.button("Run Models", type="primary", use_container_width=True):
@@ -269,8 +260,7 @@ if st.session_state.df is not None:
             
             sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
 
-            if 'selected_model' not in st.session_state:
-                st.session_state.selected_model = None
+            if 'selected_model' not in st.session_state: st.session_state.selected_model = None
 
             cols = st.columns(len(sorted_results))
             for i, model in enumerate(sorted_results):
