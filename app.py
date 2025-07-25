@@ -31,9 +31,11 @@ def analyze_data(df):
         elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
-            # Check for columns that are strings but contain numbers (e.g., "$1,000", "50kg")
-            if df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
-                col_type = 'complex_text'
+            # Check for complex text that could be engineered
+            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d)', case=False, na=False).sum() / non_empty_count > 0.5:
+                col_type = 'multi_feature_text'
+            elif df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
+                col_type = 'dirty_numerical'
             else:
                 col_type = 'categorical'
 
@@ -179,7 +181,7 @@ if st.session_state.df is not None:
 
         st.divider()
         st.subheader("Intelligent Feature Extraction & Cleaning")
-        complex_cols = [col for col, det in analysis['column_details'].items() if det['dtype'] == 'complex_text']
+        complex_cols = [col for col, det in analysis['column_details'].items() if det['dtype'] == 'complex_text' or det['dtype'] == 'dirty_numerical']
         if not complex_cols:
             st.write("No complex text columns found for feature extraction.")
         else:
