@@ -130,31 +130,36 @@ if st.session_state.df is not None:
 
     with tabs[2]:
         st.header("🔬 Data Transformation Workspace")
-        st.info("Prepare your data for modeling. Actions here modify a copy of your data.")
-
+        st.info("Prepare your data for modeling. Actions here modify a copy of your original data.")
+        
         if st.button("⚡ Auto-Clean Dataset", use_container_width=True, type="primary"):
             with st.spinner("Running Auto-Clean pipeline..."):
                 temp_df = st.session_state.df_transformed.copy()
                 log = st.session_state.transform_log
                 
                 # Imputation
-                num_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
-                cat_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical']
+                num_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical' and d['missing'] > 0]
+                cat_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical' and d['missing'] > 0]
                 
-                if num_cols:
-                    imputer_num = SimpleImputer(strategy='median')
-                    temp_df[num_cols] = pd.DataFrame(imputer_num.fit_transform(temp_df[num_cols]), columns=num_cols, index=temp_df.index)
-                    log.append("Auto: Imputed missing numerical data with median.")
-                
+                for col in num_cols:
+                    if abs(analysis['basic_stats'][col]['skewness']) > 1:
+                        fill_value = temp_df[col].median()
+                        log.append(f"Auto: Imputed '{col}' with median ({fill_value:.2f}) due to skew.")
+                    else:
+                        fill_value = temp_df[col].mean()
+                        log.append(f"Auto: Imputed '{col}' with mean ({fill_value:.2f}).")
+                    temp_df[col].fillna(fill_value, inplace=True)
+
                 if cat_cols:
                     imputer_cat = SimpleImputer(strategy='most_frequent')
                     temp_df[cat_cols] = pd.DataFrame(imputer_cat.fit_transform(temp_df[cat_cols]), columns=cat_cols, index=temp_df.index)
                     log.append("Auto: Imputed missing categorical data with mode.")
                 
                 # Scaling
-                if num_cols:
+                numerical_cols_to_scale = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
+                if numerical_cols_to_scale:
                     scaler = StandardScaler()
-                    temp_df[num_cols] = scaler.fit_transform(temp_df[num_cols])
+                    temp_df[numerical_cols_to_scale] = scaler.fit_transform(temp_df[numerical_cols_to_scale])
                     log.append("Auto: Scaled numerical features with StandardScaler.")
 
                 st.session_state.df_transformed = temp_df
@@ -189,7 +194,7 @@ if st.session_state.df is not None:
                         st.session_state.df_transformed = df_copy
                         st.session_state.transform_log.append(f"Extracted HP, Liters, Cylinders from '{col}'. Dropped original.")
                         st.rerun()
-
+    
     with tabs[3]:
         st.subheader("Column Distributions (on Transformed Data)")
         if not df_transformed.empty:
