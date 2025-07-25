@@ -173,7 +173,7 @@ if st.session_state.df is not None:
                     df_transformed.drop(columns=[col], inplace=True)
                     st.session_state.df_transformed = df_transformed
                     st.session_state.transform_log.append(f"Extracted HP, Liters, Cylinders from '{col}'. Dropped original.")
-                    st.experimental_rerun()
+                    st.rerun()
     
     with tabs[3]:
         st.subheader("Column Distributions (on Transformed Data)")
@@ -243,7 +243,9 @@ if st.session_state.df is not None:
             st.subheader("5. Model Results Leaderboard")
             results = st.session_state.model_results
             
-            metric_name = "R-Squared" if "Regression" in results[0]['name'] else "Accuracy"
+            # Determine metric based on the first model's results
+            is_regression_results = 'R-Squared' in results[0]['metrics']
+            metric_name = "R-Squared" if is_regression_results else "Accuracy"
             
             sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
 
