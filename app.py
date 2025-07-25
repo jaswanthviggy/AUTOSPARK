@@ -26,10 +26,13 @@ def analyze_data(df):
         missing = df[col].isnull().sum()
         non_empty_count = n_rows - missing
         
-        if pd.api.types.is_numeric_dtype(dtype): col_type = 'numerical'
-        elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8): col_type = 'date'
+        if pd.api.types.is_numeric_dtype(dtype):
+            col_type = 'numerical'
+        elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
+            col_type = 'date'
         else:
-            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d|\$|€|mi|kg)', case=False, na=False).sum() / non_empty_count > 0.5:
+            # Check for columns that are strings but contain numbers (e.g., "$1,000", "50kg")
+            if df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
                 col_type = 'complex_text'
             else:
                 col_type = 'categorical'
@@ -54,7 +57,6 @@ def analyze_data(df):
 def train_models_mock(df, features, target, problem_type, selected_models):
     time.sleep(2)
     results = []
-    # Simple simulation logic
     if problem_type == 'Regression':
         base_r2 = 0.65 + np.random.rand() * 0.1
         for i, model_name in enumerate(selected_models):
@@ -83,7 +85,7 @@ uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type="csv")
 if uploaded_file is not None:
     if st.session_state.file_name != uploaded_file.name:
         try:
-            df = pd.read_csv(uploaded_file)
+            df = pd.read_csv(uploaded_file, thousands=',')
             st.session_state.df = df
             st.session_state.df_transformed = df.copy()
             st.session_state.file_name = uploaded_file.name
@@ -176,7 +178,7 @@ if st.session_state.df is not None:
             st.dataframe(df_transformed.head())
 
         st.divider()
-        st.subheader("Intelligent Feature Extraction")
+        st.subheader("Intelligent Feature Extraction & Cleaning")
         complex_cols = [col for col, det in analysis['column_details'].items() if det['dtype'] == 'complex_text']
         if not complex_cols:
             st.write("No complex text columns found for feature extraction.")
@@ -184,15 +186,14 @@ if st.session_state.df is not None:
             for col in complex_cols:
                 with st.container():
                     st.write(f"**Column: `{col}`**")
-                    st.write("This column may contain multiple pieces of information.")
-                    if st.button(f"Extract Features from `{col}`"):
+                    st.write("This column contains numbers mixed with text. We can attempt to clean it.")
+                    if st.button(f"Clean & Convert '{col}' to Number"):
                         df_copy = st.session_state.df_transformed.copy()
-                        df_copy[f'{col}_HP'] = df_copy[col].str.extract(r'(\d+\.?\d*)\s*HP', expand=False).astype(float)
-                        df_copy[f'{col}_Liters'] = df_copy[col].str.extract(r'(\d+\.?\d*)\s*L', expand=False).astype(float)
-                        df_copy[f'{col}_Cylinders'] = df_copy[col].str.extract(r'V(\d+)', expand=False).astype(float)
-                        df_copy.drop(columns=[col], inplace=True)
+                        # Robustly extract numbers, removing currency, units, commas
+                        df_copy[col] = df_copy[col].astype(str).str.replace(r'[^\d.]', '', regex=True)
+                        df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
                         st.session_state.df_transformed = df_copy
-                        st.session_state.transform_log.append(f"Extracted HP, Liters, Cylinders from '{col}'. Dropped original.")
+                        st.session_state.transform_log.append(f"Cleaned and converted '{col}' to a numerical type.")
                         st.rerun()
     
     with tabs[3]:
