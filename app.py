@@ -5,6 +5,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import time
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -24,15 +28,12 @@ def analyze_data(df):
         missing = df[col].isnull().sum()
         non_empty_count = n_rows - missing
         
-        # Improved Type Detection
         if pd.api.types.is_numeric_dtype(dtype):
             col_type = 'numerical'
-        elif pd.api.types.is_datetime64_any_dtype(dtype) or \
-             (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}').sum() / non_empty_count > 0.8):
+        elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
-            # Check for complex text that could be engineered
-            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d)', case=False).sum() / non_empty_count > 0.5:
+            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d|\$|€|mi|kg)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'complex_text'
             else:
                 col_type = 'categorical'
@@ -140,13 +141,34 @@ if st.session_state.df is not None:
         st.header("🔬 Data Transformation Workspace")
         st.info("Prepare your data for modeling. All actions here are performed on a copy of your original data.")
         
-        # Auto-Clean
         if st.button("⚡ Auto-Clean Dataset", use_container_width=True, type="primary"):
             with st.spinner("Running Auto-Clean pipeline..."):
-                # Simulate a full cleaning pipeline
-                st.session_state.transform_log.append("Ran Auto-Clean: Imputed, Scaled, Encoded.")
+                temp_df = df_transformed.copy()
+                log = st.session_state.transform_log
+                
+                # Imputation
+                num_imputer = SimpleImputer(strategy='median')
+                cat_imputer = SimpleImputer(strategy='most_frequent')
+                numerical_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
+                categorical_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical']
+                
+                if numerical_cols:
+                    temp_df[numerical_cols] = num_imputer.fit_transform(temp_df[numerical_cols])
+                    log.append("Imputed missing numerical data with median.")
+                if categorical_cols:
+                    temp_df[categorical_cols] = cat_imputer.fit_transform(temp_df[categorical_cols])
+                    log.append("Imputed missing categorical data with mode.")
+                
+                # Scaling
+                if numerical_cols:
+                    scaler = StandardScaler()
+                    temp_df[numerical_cols] = scaler.fit_transform(temp_df[numerical_cols])
+                    log.append("Scaled numerical features with StandardScaler.")
+
+                st.session_state.df_transformed = temp_df
+                st.session_state.transform_log = log
                 st.success("Auto-Clean pipeline completed!")
-                # In a real app, you would call the actual cleaning functions here
+                st.rerun()
         
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -164,9 +186,8 @@ if st.session_state.df is not None:
         else:
             for col in complex_cols:
                 st.write(f"**Column: `{col}`**")
-                st.write("This column contains multiple pieces of information. We can try to extract them into new features.")
+                st.write("This column may contain multiple pieces of information.")
                 if st.button(f"Extract Features from `{col}`"):
-                    # Example: Extract HP, Liters, Cylinders from an 'Engine' column
                     df_transformed[f'{col}_HP'] = df_transformed[col].str.extract(r'(\d+\.?\d*)\s*HP', expand=False).astype(float)
                     df_transformed[f'{col}_Liters'] = df_transformed[col].str.extract(r'(\d+\.?\d*)\s*L', expand=False).astype(float)
                     df_transformed[f'{col}_Cylinders'] = df_transformed[col].str.extract(r'V(\d+)', expand=False).astype(float)
@@ -243,7 +264,6 @@ if st.session_state.df is not None:
             st.subheader("5. Model Results Leaderboard")
             results = st.session_state.model_results
             
-            # Determine metric based on the first model's results
             is_regression_results = 'R-Squared' in results[0]['metrics']
             metric_name = "R-Squared" if is_regression_results else "Accuracy"
             
