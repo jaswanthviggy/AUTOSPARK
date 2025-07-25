@@ -48,31 +48,30 @@ def analyze_data(df):
     return {'shape': {'rows': n_rows, 'columns': n_cols}, 'column_details': column_details, 'basic_stats': basic_stats, 'correlation_matrix': correlation_matrix}
 
 # --- Mock Model Training Engine ---
-def train_models_mock(df, features, target, problem_type):
+def train_models_mock(df, features, target, problem_type, selected_models):
     """Simulates training multiple models and returns realistic mock results."""
     time.sleep(2) # Simulate training time
     results = []
     
     if problem_type == 'Regression':
-        models = ["Linear Regression", "Ridge Regression", "Random Forest Regressor"]
         base_r2 = 0.65 + np.random.rand() * 0.1
-        for i, model_name in enumerate(models):
-            score = base_r2 + i * 0.05 + np.random.rand() * 0.05 # Make RF better
+        for i, model_name in enumerate(selected_models):
+            score = base_r2 + i * 0.02 + np.random.rand() * 0.05
             results.append({
                 'name': model_name,
                 'score': score,
                 'metrics': {
                     'R-Squared': score,
+                    'Adjusted R-Squared': score - 0.01,
                     'Mean Squared Error': np.random.uniform(100, 200) / (i + 1),
                     'Mean Absolute Error': np.random.uniform(10, 20) / (i + 1)
                 },
                 'feature_importance': sorted([{'feature': f, 'importance': np.random.rand()} for f in features], key=lambda x: x['importance'], reverse=True)[:10]
             })
     else: # Classification
-        models = ["Logistic Regression", "Decision Tree Classifier", "Random Forest Classifier"]
         base_acc = 0.75 + np.random.rand() * 0.1
-        for i, model_name in enumerate(models):
-            score = base_acc + i * 0.05 + np.random.rand() * 0.05
+        for i, model_name in enumerate(selected_models):
+            score = base_acc + i * 0.02 + np.random.rand() * 0.05
             results.append({
                 'name': model_name,
                 'score': score,
@@ -166,48 +165,46 @@ if st.session_state.df is not None:
     with tabs[5]:
         st.header("🤖 AutoML Workspace")
         
-        # Step 1: Task Selection
         ml_task = st.selectbox("1. Choose your Machine Learning Task", ["Supervised Learning", "Unsupervised Learning"])
         
         if ml_task == "Supervised Learning":
-            st.subheader("2. Supervised Learning Setup")
-            target_variable = st.selectbox("Select Target Variable (what to predict)", [""] + list(df.columns))
+            problem_type = st.radio("2. Select your Prediction Goal", ["Regression (Predict a number)", "Classification (Predict a category)"], horizontal=True)
+            
+            if problem_type:
+                is_regression = "Regression" in problem_type
+                st.subheader("3. Select Target and Features")
+                
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    target_variable = st.selectbox("Target Variable", [""] + list(df.columns))
+                
+                if target_variable:
+                    with col2:
+                        default_features = [col for col in df.columns if col != target_variable and df[col].nunique() > 1 and (df[col].nunique() / len(df) < 0.5)]
+                        selected_features = st.multiselect("Features", [c for c in df.columns if c != target_variable], default=default_features)
 
-            if target_variable:
-                problem_type = "Regression" if analysis['column_details'][target_variable]['dtype'] == 'numerical' else "Classification"
-                st.success(f"Problem Type Detected: **{problem_type}**")
+                    st.subheader("4. Select Models to Train")
+                    if is_regression:
+                        model_options = ["Linear Regression", "Ridge", "Lasso", "Decision Tree Regressor", "Random Forest Regressor", "Gradient Boosting Regressor"]
+                    else:
+                        model_options = ["Logistic Regression", "K-Nearest Neighbors", "SVM", "Decision Tree Classifier", "Random Forest Classifier", "Gradient Boosting Classifier"]
+                    selected_models = st.multiselect("Algorithms", model_options, default=model_options)
 
-                # Step 3: Algorithm Selection
-                st.subheader("3. Select Models to Train")
-                if problem_type == "Regression":
-                    model_options = ["Linear Regression", "Ridge Regression", "Decision Tree Regressor", "Random Forest Regressor"]
-                else:
-                    model_options = ["Logistic Regression", "K-Nearest Neighbors", "Decision Tree Classifier", "Random Forest Classifier"]
-                selected_models = st.multiselect("Models", model_options, default=model_options)
-
-                # Step 4: Feature Selection
-                st.subheader("4. Select Features for Training")
-                default_features = [col for col in df.columns if col != target_variable and df[col].nunique() > 1 and df[col].nunique() < 50]
-                selected_features = st.multiselect("Features", [c for c in df.columns if c != target_variable], default=default_features)
-
-                if st.button("Train Selected Models", type="primary", use_container_width=True):
-                    with st.spinner("Training models... This may take a moment."):
-                        st.session_state.model_results = train_models_mock(df, selected_features, target_variable, problem_type)
+                    if st.button("Train Selected Models", type="primary", use_container_width=True):
+                        with st.spinner("Training models... This may take a moment."):
+                            st.session_state.model_results = train_models_mock(df, selected_features, target_variable, "Regression" if is_regression else "Classification", selected_models)
 
         else: # Unsupervised
             st.subheader("2. Unsupervised Learning Setup")
-            st.info("Unsupervised models help find patterns in your data without a specific target.")
             unsupervised_models = st.multiselect("Select Models to Run", ["K-Means Clustering", "Principal Component Analysis (PCA)"])
             if st.button("Run Models", type="primary", use_container_width=True):
                 st.success("Unsupervised models ran successfully! (This is a placeholder)")
         
-        # Step 5: Display Results
         if 'model_results' in st.session_state and st.session_state.model_results:
             st.subheader("5. Model Results Leaderboard")
             results = st.session_state.model_results
-            metric_name = "R-Squared" if results[0]['metrics'].get('R-Squared') is not None else "Accuracy"
+            metric_name = "R-Squared" if "Regression" in results[0]['name'] else "Accuracy"
             
-            # Sort models by score
             sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
 
             if 'selected_model' not in st.session_state:
@@ -221,13 +218,11 @@ if st.session_state.df is not None:
                     if st.button(f"View Details", key=f"details_{model['name']}"):
                         st.session_state.selected_model = model
 
-            # Detailed View
             if st.session_state.selected_model:
                 model = st.session_state.selected_model
                 st.divider()
                 st.header(f"Detailed Results for: {model['name']}")
                 
-                # Metrics
                 st.subheader("Performance Metrics")
                 st.json(model['metrics'])
                 if 'confusion_matrix' in model:
@@ -235,12 +230,10 @@ if st.session_state.df is not None:
                     fig = px.imshow(model['confusion_matrix'], text_auto=True, labels=dict(x="Predicted", y="Actual"), color_continuous_scale='Blues')
                     st.plotly_chart(fig)
 
-                # Feature Importance
                 st.subheader("Feature Importance")
                 fig = px.bar(pd.DataFrame(model['feature_importance']), x='importance', y='feature', orientation='h', title="Top 10 Most Influential Features")
                 st.plotly_chart(fig)
 
-                # AI Interpretation
                 st.subheader("✨ AI Interpretation")
                 with st.spinner("Generating AI interpretation..."):
                     interp_prompt = f"Interpret these model results: Model='{model['name']}', Score={model['score']:.3f}, Top Features={', '.join([f['feature'] for f in model['feature_importance']])}. Explain the performance and key drivers."
