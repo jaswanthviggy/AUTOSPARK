@@ -162,7 +162,12 @@ if st.session_state.df is not None:
             if st.button("Suggest Better Names"):
                 with st.spinner("AI is thinking of better names..."):
                     rename_prompt = f"Given the following CSV column headers, suggest clearer, more conventional names. Return only a JSON object mapping the old name to the new name. Headers: {', '.join(df.columns)}"
-                    st.session_state.suggested_names = json.loads(get_gemini_response(rename_prompt))
+                    response = get_gemini_response(rename_prompt)
+                    try:
+                        st.session_state.suggested_names = json.loads(response)
+                    except json.JSONDecodeError:
+                        st.error("AI did not return valid JSON. Please try again or check your API.")
+                        st.session_state.suggested_names = {}
             
             if 'suggested_names' in st.session_state and st.session_state.suggested_names:
                 st.write("AI Suggestions:")
