@@ -31,6 +31,7 @@ def analyze_data(df):
         elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
+            # More specific regex for multi-feature extraction
             if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*HP.*(\d+\.?\d*)\s*L.*V(\d+)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'multi_feature_text'
             elif df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
@@ -191,6 +192,7 @@ if st.session_state.df is not None:
                     st.write("This column contains numbers mixed with text. We can attempt to clean it.")
                     if st.button(f"Clean & Convert '{col}' to Number", key=f"clean_{col}"):
                         df_copy = st.session_state.df_transformed.copy()
+                        # Robustly extract numbers, removing currency, units, commas
                         df_copy[col] = df_copy[col].astype(str).str.replace(r'[^\d.]', '', regex=True)
                         df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
                         st.session_state.df_transformed = df_copy
