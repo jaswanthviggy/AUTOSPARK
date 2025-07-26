@@ -181,7 +181,7 @@ if st.session_state.df is not None:
 
         st.divider()
         st.subheader("Intelligent Feature Extraction & Cleaning")
-        complex_cols = [col for col, det in analysis['column_details'].items() if det['dtype'] == 'complex_text' or det['dtype'] == 'dirty_numerical']
+        complex_cols = [col for col, det in analysis['column_details'].items() if det['dtype'] == 'multi_feature_text' or det['dtype'] == 'dirty_numerical']
         if not complex_cols:
             st.write("No complex text columns found for feature extraction.")
         else:
@@ -299,4 +299,3 @@ if st.session_state.df is not None:
 else:
     st.sidebar.info("Upload a CSV file to begin your analysis.")
     st.info("Welcome to DataSpark! Please upload a file to get started.")
-
