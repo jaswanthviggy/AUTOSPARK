@@ -31,7 +31,8 @@ def analyze_data(df):
         elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
-            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d|\$|€|mi|kg)', case=False, na=False).sum() / non_empty_count > 0.5:
+            # More specific regex for multi-feature extraction
+            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*HP.*(\d+\.?\d*)\s*L.*V(\d+)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'multi_feature_text'
             elif df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
                 col_type = 'dirty_numerical'
@@ -63,7 +64,7 @@ def train_models_mock(df, features, target, problem_type, selected_models, test_
         base_r2 = 0.65 + np.random.rand() * 0.1
         for i, model_name in enumerate(selected_models):
             score = base_r2 + i * 0.02 + np.random.rand() * 0.05
-            results.append({'name': model_name, 'score': score, 'metrics': {'R-Squared': score, 'MSE': np.random.uniform(100,200)/(i+1), 'MAE': np.random.uniform(10,20)/(i+1)}, 'feature_importance': sorted([{'feature': f, 'importance': np.random.rand()} for f in features], key=lambda x: x['importance'], reverse=True)[:10]})
+            results.append({'name': model_name, 'score': score, 'metrics': {'R-Squared': score, 'Adjusted R-Squared': score - 0.01, 'MSE': np.random.uniform(100,200)/(i+1), 'MAE': np.random.uniform(10,20)/(i+1)}, 'feature_importance': sorted([{'feature': f, 'importance': np.random.rand()} for f in features], key=lambda x: x['importance'], reverse=True)[:10]})
     else:
         base_acc = 0.75 + np.random.rand() * 0.1
         for i, model_name in enumerate(selected_models):
@@ -141,6 +142,7 @@ if st.session_state.df is not None:
                 temp_df = st.session_state.df_transformed.copy()
                 log = st.session_state.transform_log
                 
+                # Imputation
                 num_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical' and d['missing'] > 0]
                 cat_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical' and d['missing'] > 0]
                 
@@ -158,6 +160,7 @@ if st.session_state.df is not None:
                     temp_df[cat_cols] = pd.DataFrame(imputer_cat.fit_transform(temp_df[cat_cols]), columns=cat_cols, index=temp_df.index)
                     log.append("Auto: Imputed missing categorical data with mode.")
                 
+                # Scaling
                 numerical_cols_to_scale = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
                 if numerical_cols_to_scale:
                     scaler = StandardScaler()
@@ -187,7 +190,7 @@ if st.session_state.df is not None:
                 with st.container():
                     st.write(f"**Column: `{col}`**")
                     st.write("This column contains numbers mixed with text. We can attempt to clean it.")
-                    if st.button(f"Clean & Convert '{col}' to Number"):
+                    if st.button(f"Clean & Convert '{col}' to Number", key=f"clean_{col}"):
                         df_copy = st.session_state.df_transformed.copy()
                         df_copy[col] = df_copy[col].astype(str).str.replace(r'[^\d.]', '', regex=True)
                         df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
@@ -302,4 +305,3 @@ if st.session_state.df is not None:
 else:
     st.sidebar.info("Upload a CSV file to begin your analysis.")
     st.info("Welcome to DataSpark! Please upload a file to get started.")
-
