@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import time
-import json
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 
@@ -56,7 +55,6 @@ def analyze_data(df):
         elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
-            # More specific regex for multi-feature extraction
             if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*HP.*(\d+\.?\d*)\s*L.*V(\d+)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'multi_feature_text'
             elif df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
@@ -143,11 +141,6 @@ if st.session_state.df is not None:
         health_score = max(0, 100 - missing_pct * 5 - (analysis['duplicate_rows'] / analysis['shape']['rows']) * 100)
         st.progress(int(health_score))
         st.metric("Health Score", f"{health_score:.1f}%")
-
-        st.subheader("AI-Generated Summary")
-        with st.spinner("AI is generating insights..."):
-            summary_prompt = f"As a senior data scientist, summarize a dataset with these characteristics: {json.dumps(analysis['shape'])}."
-            st.markdown(get_gemini_response(summary_prompt))
         
         st.subheader("Key Metrics")
         col1, col2, col3, col4 = st.columns(4)
