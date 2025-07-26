@@ -305,3 +305,4 @@ if st.session_state.df is not None:
 else:
     st.sidebar.info("Upload a CSV file to begin your analysis.")
     st.info("Welcome to DataSpark! Please upload a file to get started.")
+
