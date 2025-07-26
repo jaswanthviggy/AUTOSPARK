@@ -16,7 +16,31 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Data Analysis Engine ---
+# --- MOCK GEMINI API ---
+def get_gemini_response(prompt):
+    """Simulates a call to the Gemini API for demonstration."""
+    time.sleep(1.5) # Simulate network latency
+    if "summary" in prompt.lower():
+        return """
+        This dataset appears to be of moderate quality with some immediate areas for improvement. 
+        The presence of missing values and potential outliers in key numerical columns suggests that a robust preprocessing pipeline will be crucial for accurate modeling. 
+        The categorical features have a reasonable number of unique values, making them good candidates for one-hot encoding. 
+        **Next Steps:** Navigate to the 'Data Transformation' tab to clean and prepare the data. The 'Auto-Clean' feature is recommended as a strong starting point.
+        """
+    elif "interpretation" in prompt.lower():
+        return """
+        **Model Performance:**
+        The model demonstrates strong predictive power, achieving a high score on the hold-out test set. This indicates that the selected features have a significant relationship with the target variable. The model appears to generalize well, suggesting it is not overfitting to the training data.
+
+        **Key Drivers:**
+        The feature importance chart clearly shows that `Feature_A` and `Feature_B` are the most influential predictors. Changes in these variables have the largest impact on the model's output. This insight is critical and suggests that any business strategy should focus heavily on these factors.
+
+        **Conclusion & Recommendations:**
+        This model is a reliable baseline for this predictive task. To further improve performance, consider experimenting with hyperparameter tuning on this model or creating interaction features from the top predictors (e.g., `Feature_A * Feature_B`). For deployment, this model is a strong candidate due to its balance of performance and interpretability.
+        """
+    return "AI response could not be generated."
+
+# --- DATA ANALYSIS ENGINE ---
 def analyze_data(df):
     if not isinstance(df, pd.DataFrame) or df.empty: return {}
     n_rows, n_cols = df.shape
@@ -31,6 +55,7 @@ def analyze_data(df):
         elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
+            # More specific regex for multi-feature extraction
             if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*HP.*(\d+\.?\d*)\s*L.*V(\d+)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'multi_feature_text'
             elif df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
@@ -54,8 +79,9 @@ def analyze_data(df):
     
     return {'shape': {'rows': n_rows, 'columns': n_cols}, 'column_details': column_details, 'basic_stats': basic_stats, 'correlation_matrix': correlation_matrix, 'value_counts': value_counts, 'duplicate_rows': df.duplicated().sum()}
 
-# --- Mock Model Training Engine ---
+# --- MOCK MODEL TRAINING ENGINE ---
 def train_models_mock(df, features, target, problem_type, selected_models, test_size, random_state):
+    st.session_state.transform_log.append(f"Starting training with test size {test_size} and random state {random_state}.")
     time.sleep(2)
     results = []
     if problem_type == 'Regression':
@@ -70,18 +96,20 @@ def train_models_mock(df, features, target, problem_type, selected_models, test_
             results.append({'name': model_name, 'score': score, 'metrics': {'Accuracy': score, 'Precision': score-0.05, 'Recall': score+0.02, 'F1-Score': score-0.01}, 'confusion_matrix': np.random.randint(0, 100, size=(2,2)), 'feature_importance': sorted([{'feature': f, 'importance': np.random.rand()} for f in features], key=lambda x: x['importance'], reverse=True)[:10]})
     return results
 
-# --- Main App UI ---
+# --- MAIN APP UI ---
 st.title("⚡ DataSpark: Advanced AutoML")
 
-# Initialize session state
+# --- SESSION STATE INITIALIZATION ---
 if 'df' not in st.session_state:
     st.session_state.df = None
     st.session_state.df_transformed = None
     st.session_state.analysis = None
     st.session_state.file_name = None
     st.session_state.transform_log = []
+if 'nn_layers' not in st.session_state:
     st.session_state.nn_layers = [{'neurons': 64, 'activation': 'ReLU'}]
 
+# --- FILE UPLOADER ---
 uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type="csv")
 
 if uploaded_file is not None:
@@ -98,6 +126,7 @@ if uploaded_file is not None:
             st.sidebar.error(f"Error: {e}")
             st.session_state.df = None
 
+# --- MAIN DASHBOARD ---
 if st.session_state.df is not None:
     analysis = analyze_data(st.session_state.df_transformed)
     df_original = st.session_state.df
@@ -105,10 +134,21 @@ if st.session_state.df is not None:
 
     st.header(f"Analysis of: {st.session_state.file_name}")
     
-    tabs = st.tabs(["Overview", "Data Info", "🔬 Data Transformation", "Distributions", "Correlations", "🤖 Model Building", "🧠 Deep Learning"])
+    tabs = st.tabs(["Overview", "Data Info", "🔬 Data Transformation", "Distributions", "Correlations", "🤖 Model Building", "🧠 Deep Learning", "🚀 Export & Deploy"])
 
     with tabs[0]:
-        st.subheader("Key Metrics (Based on Current Data)")
+        st.subheader("Data Health Score")
+        missing_pct = (df_transformed.isnull().sum().sum() / (df_transformed.shape[0] * df_transformed.shape[1])) * 100
+        health_score = max(0, 100 - missing_pct * 5 - (analysis['duplicate_rows'] / analysis['shape']['rows']) * 100)
+        st.progress(int(health_score))
+        st.metric("Health Score", f"{health_score:.1f}%")
+
+        st.subheader("AI-Generated Summary")
+        with st.spinner("AI is generating insights..."):
+            summary_prompt = f"As a senior data scientist, summarize a dataset with these characteristics: {json.dumps(analysis['shape'])}."
+            st.markdown(get_gemini_response(summary_prompt))
+        
+        st.subheader("Key Metrics")
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Rows", f"{analysis['shape']['rows']:,}")
         col2.metric("Columns", f"{analysis['shape']['columns']:,}")
@@ -348,6 +388,32 @@ if st.session_state.df is not None:
             # Display a placeholder image for the SHAP plot
             st.image("https://i.imgur.com/kIBi9sN.png", caption="Example SHAP Summary Plot")
 
+    with tabs[7]:
+        st.header("🚀 Export & Deploy")
+        st.subheader("Download Artifacts")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="Download Cleaned Data (CSV)",
+                data=df_transformed.to_csv(index=False).encode('utf-8'),
+                file_name=f"cleaned_{st.session_state.file_name}",
+                mime='text/csv',
+                use_container_width=True
+            )
+        with col2:
+            st.button("Download Model Report (PDF)", disabled=True, use_container_width=True)
+
+        st.subheader("Get Prediction Code")
+        st.info("Use the following Python code snippet to make predictions with your best model.")
+        st.code("""
+# This is a placeholder for prediction code.
+# In a real app, this would be populated with a scikit-learn pipeline.
+
+def predict(new_data):
+    # model.predict(new_data)
+    print("Prediction logic would be here.")
+
+        """, language="python")
 
 else:
     st.sidebar.info("Upload a CSV file to begin your analysis.")
