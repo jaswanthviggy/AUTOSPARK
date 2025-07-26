@@ -31,8 +31,7 @@ def analyze_data(df):
         elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
-            # Check for complex text that could be engineered
-            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d)', case=False, na=False).sum() / non_empty_count > 0.5:
+            if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*(HP|L|V\d|\$|€|mi|kg)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'multi_feature_text'
             elif df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
                 col_type = 'dirty_numerical'
@@ -56,7 +55,8 @@ def analyze_data(df):
     return {'shape': {'rows': n_rows, 'columns': n_cols}, 'column_details': column_details, 'basic_stats': basic_stats, 'correlation_matrix': correlation_matrix, 'value_counts': value_counts, 'duplicate_rows': df.duplicated().sum()}
 
 # --- Mock Model Training Engine ---
-def train_models_mock(df, features, target, problem_type, selected_models):
+def train_models_mock(df, features, target, problem_type, selected_models, test_size, random_state):
+    st.session_state.transform_log.append(f"Starting training with test size {test_size} and random state {random_state}.")
     time.sleep(2)
     results = []
     if problem_type == 'Regression':
@@ -141,7 +141,6 @@ if st.session_state.df is not None:
                 temp_df = st.session_state.df_transformed.copy()
                 log = st.session_state.transform_log
                 
-                # Imputation
                 num_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical' and d['missing'] > 0]
                 cat_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical' and d['missing'] > 0]
                 
@@ -159,7 +158,6 @@ if st.session_state.df is not None:
                     temp_df[cat_cols] = pd.DataFrame(imputer_cat.fit_transform(temp_df[cat_cols]), columns=cat_cols, index=temp_df.index)
                     log.append("Auto: Imputed missing categorical data with mode.")
                 
-                # Scaling
                 numerical_cols_to_scale = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
                 if numerical_cols_to_scale:
                     scaler = StandardScaler()
@@ -191,7 +189,6 @@ if st.session_state.df is not None:
                     st.write("This column contains numbers mixed with text. We can attempt to clean it.")
                     if st.button(f"Clean & Convert '{col}' to Number"):
                         df_copy = st.session_state.df_transformed.copy()
-                        # Robustly extract numbers, removing currency, units, commas
                         df_copy[col] = df_copy[col].astype(str).str.replace(r'[^\d.]', '', regex=True)
                         df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
                         st.session_state.df_transformed = df_copy
@@ -240,7 +237,13 @@ if st.session_state.df is not None:
                         default_features = [col for col in df_transformed.columns if col != target_variable and df_transformed[col].nunique() > 1 and (df_transformed[col].nunique() / len(df_transformed) < 0.5)]
                         selected_features = st.multiselect("Features", [c for c in df_transformed.columns if c != target_variable], default=default_features)
 
-                    st.subheader("4. Select Models to Train")
+                    st.subheader("4. Configure Training Parameters")
+                    with st.expander("Set Training Options"):
+                        test_size = st.slider("Test Size", 0.1, 0.5, 0.2, 0.05)
+                        random_state = st.number_input("Random State (for reproducibility)", value=42)
+                        st.checkbox("Enable Hyperparameter Tuning (Coming Soon)", disabled=True)
+
+                    st.subheader("5. Select Models to Train")
                     if is_regression:
                         model_options = ["Linear Regression", "Ridge", "Lasso", "Decision Tree Regressor", "Random Forest Regressor", "Gradient Boosting Regressor"]
                     else:
@@ -249,7 +252,7 @@ if st.session_state.df is not None:
 
                     if st.button("Train Selected Models", type="primary", use_container_width=True):
                         with st.spinner("Training models on transformed data..."):
-                            st.session_state.model_results = train_models_mock(df_transformed, selected_features, target_variable, "Regression" if is_regression else "Classification", selected_models)
+                            st.session_state.model_results = train_models_mock(df_transformed, selected_features, target_variable, "Regression" if is_regression else "Classification", selected_models, test_size, random_state)
 
         else: # Unsupervised
             st.subheader("2. Unsupervised Learning Setup")
@@ -262,7 +265,7 @@ if st.session_state.df is not None:
                 st.success("Unsupervised models ran successfully! (This is a placeholder)")
         
         if 'model_results' in st.session_state and st.session_state.model_results:
-            st.subheader("5. Model Results Leaderboard")
+            st.subheader("6. Model Results Leaderboard")
             results = st.session_state.model_results
             
             is_regression_results = 'R-Squared' in results[0]['metrics']
@@ -299,3 +302,4 @@ if st.session_state.df is not None:
 else:
     st.sidebar.info("Upload a CSV file to begin your analysis.")
     st.info("Welcome to DataSpark! Please upload a file to get started.")
+
