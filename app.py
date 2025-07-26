@@ -31,7 +31,6 @@ def analyze_data(df):
         elif pd.api.types.is_datetime64_any_dtype(dtype) or (df[col].astype(str).str.match(r'\d{4}-\d{2}-\d{2}', na=False).sum() / non_empty_count > 0.8):
             col_type = 'date'
         else:
-            # More specific regex for multi-feature extraction
             if df[col].astype(str).str.contains(r'(\d+\.?\d*)\s*HP.*(\d+\.?\d*)\s*L.*V(\d+)', case=False, na=False).sum() / non_empty_count > 0.5:
                 col_type = 'multi_feature_text'
             elif df[col].astype(str).str.contains(r'\d', na=False).sum() / non_empty_count > 0.7:
@@ -57,7 +56,6 @@ def analyze_data(df):
 
 # --- Mock Model Training Engine ---
 def train_models_mock(df, features, target, problem_type, selected_models, test_size, random_state):
-    st.session_state.transform_log.append(f"Starting training with test size {test_size} and random state {random_state}.")
     time.sleep(2)
     results = []
     if problem_type == 'Regression':
@@ -82,6 +80,7 @@ if 'df' not in st.session_state:
     st.session_state.analysis = None
     st.session_state.file_name = None
     st.session_state.transform_log = []
+    st.session_state.nn_layers = [{'neurons': 64, 'activation': 'ReLU'}]
 
 uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type="csv")
 
@@ -106,7 +105,7 @@ if st.session_state.df is not None:
 
     st.header(f"Analysis of: {st.session_state.file_name}")
     
-    tabs = st.tabs(["Overview", "Data Info", "🔬 Data Transformation", "Distributions", "Correlations", "🤖 Model Building"])
+    tabs = st.tabs(["Overview", "Data Info", "🔬 Data Transformation", "Distributions", "Correlations", "🤖 Model Building", "🧠 Deep Learning"])
 
     with tabs[0]:
         st.subheader("Key Metrics (Based on Current Data)")
@@ -142,7 +141,6 @@ if st.session_state.df is not None:
                 temp_df = st.session_state.df_transformed.copy()
                 log = st.session_state.transform_log
                 
-                # Imputation
                 num_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical' and d['missing'] > 0]
                 cat_cols = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'categorical' and d['missing'] > 0]
                 
@@ -160,7 +158,6 @@ if st.session_state.df is not None:
                     temp_df[cat_cols] = pd.DataFrame(imputer_cat.fit_transform(temp_df[cat_cols]), columns=cat_cols, index=temp_df.index)
                     log.append("Auto: Imputed missing categorical data with mode.")
                 
-                # Scaling
                 numerical_cols_to_scale = [c for c, d in analysis['column_details'].items() if d['dtype'] == 'numerical']
                 if numerical_cols_to_scale:
                     scaler = StandardScaler()
@@ -192,7 +189,6 @@ if st.session_state.df is not None:
                     st.write("This column contains numbers mixed with text. We can attempt to clean it.")
                     if st.button(f"Clean & Convert '{col}' to Number", key=f"clean_{col}"):
                         df_copy = st.session_state.df_transformed.copy()
-                        # Robustly extract numbers, removing currency, units, commas
                         df_copy[col] = df_copy[col].astype(str).str.replace(r'[^\d.]', '', regex=True)
                         df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
                         st.session_state.df_transformed = df_copy
@@ -302,6 +298,56 @@ if st.session_state.df is not None:
                 st.subheader("Feature Importance")
                 fig = px.bar(pd.DataFrame(model['feature_importance']), x='importance', y='feature', orientation='h', title="Top 10 Most Influential Features")
                 st.plotly_chart(fig)
+
+    with tabs[6]:
+        st.header("🧠 Deep Learning Workspace")
+        st.info("This is an advanced workspace for building and training Artificial Neural Networks (ANNs) for your tabular data.")
+        
+        st.subheader("Pro-Tip: When to use Deep Learning")
+        st.markdown("""
+        - **Good for:** Complex, non-linear relationships in large datasets.
+        - **Not for:** Small datasets (prone to overfitting) or when model interpretability is the top priority.
+        - **CNNs/RNNs:** These are specialized for image/sequence data. For this tabular dataset, a standard ANN (or MLP) is the best choice.
+        """)
+
+        st.subheader("1. Build Your Network Architecture")
+        
+        for i, layer in enumerate(st.session_state.nn_layers):
+            cols = st.columns([3, 2, 1])
+            layer['neurons'] = cols[0].slider(f"Neurons in Hidden Layer {i+1}", 8, 512, layer['neurons'], 8, key=f"neurons_{i}")
+            layer['activation'] = cols[1].selectbox(f"Activation Function {i+1}", ["ReLU", "Tanh", "Sigmoid"], key=f"activation_{i}")
+            if len(st.session_state.nn_layers) > 1:
+                if cols[2].button("Remove", key=f"remove_layer_{i}"):
+                    st.session_state.nn_layers.pop(i)
+                    st.rerun()
+
+        if st.button("Add Hidden Layer"):
+            st.session_state.nn_layers.append({'neurons': 32, 'activation': 'ReLU'})
+            st.rerun()
+
+        st.subheader("2. Train the Network")
+        if st.button("Train ANN Model", type="primary", use_container_width=True):
+            with st.spinner("Training Neural Network... (This is a simulation)"):
+                # Simulate training and create a loss chart
+                epochs = 50
+                loss_data = pd.DataFrame({
+                    'Epoch': range(1, epochs + 1),
+                    'Training Loss': np.geomspace(0.8, 0.1, epochs) + np.random.rand(epochs) * 0.1,
+                    'Validation Loss': np.geomspace(0.7, 0.15, epochs) + np.random.rand(epochs) * 0.1,
+                })
+                st.session_state.training_chart = loss_data
+                st.session_state.shap_plot = True # Simulate that a SHAP plot is ready
+
+        if 'training_chart' in st.session_state:
+            st.subheader("Live Training Progress (Simulated)")
+            st.line_chart(st.session_state.training_chart, x='Epoch')
+        
+        if 'shap_plot' in st.session_state:
+            st.subheader("Model Interpretation (SHAP Summary Plot)")
+            st.info("A SHAP plot shows the impact of each feature on the model's predictions. Red dots represent high feature values, blue dots represent low ones.")
+            # Display a placeholder image for the SHAP plot
+            st.image("https://i.imgur.com/kIBi9sN.png", caption="Example SHAP Summary Plot")
+
 
 else:
     st.sidebar.info("Upload a CSV file to begin your analysis.")
